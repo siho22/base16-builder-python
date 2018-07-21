@@ -1,9 +1,10 @@
 import os
 from glob import glob
-from threading import Thread
-from queue import Queue
+from concurrent.futures import ProcessPoolExecutor
+import functools
 import pystache
 from .shared import get_yaml_dict, rel_to_cwd
+from .xterm import approx_xterm_colors
 
 
 class TemplateGroup(object):
@@ -109,6 +110,12 @@ def format_scheme(scheme, slug):
         scheme['{}-dec-b'.format(base)] = str(
             int(scheme['{}-rgb-b'.format(base)]) / 255)
 
+    hex_colors = [scheme['base{:02X}-hex'.format(base)]
+        for base in range(0, 16)]
+
+    for base, xterm_color in enumerate(approx_xterm_colors(hex_colors)):
+        scheme['base{:02X}-xterm'.format(base)] = str(xterm_color)
+
 
 def slugify(scheme_file):
     """Format $scheme_file_name to be used as a slug variable."""
@@ -118,7 +125,7 @@ def slugify(scheme_file):
     return scheme_file_name.lower().replace(' ', '-')
 
 
-def build_single(scheme_file, templates, base_output_dir):
+def build_single(templates, base_output_dir, scheme_file):
     """Build colorscheme for a single $scheme_file using all TemplateGroup
     instances in $templates."""
     scheme = get_yaml_dict(scheme_file)
@@ -150,45 +157,13 @@ def build_single(scheme_file, templates, base_output_dir):
 
     print('Built colorschemes for scheme "{}".'.format(scheme_name))
 
-
-def build_single_worker(queue, templates, base_output_dir):
-    """Worker thread for picking up scheme files from $queue and building b16
-    templates using $templates until it receives None."""
-    while True:
-        scheme_file = queue.get()
-        if scheme_file is None:
-            break
-        build_single(scheme_file, templates, base_output_dir)
-        queue.task_done()
-
-
 def build_from_job_list(scheme_files, templates, base_output_dir):
     """Use $scheme_files as a job lists and build base16 templates using
     $templates (a list of TemplateGroup objects)."""
-    queue = Queue()
-    for scheme in scheme_files:
-        queue.put(scheme)
 
-    if len(scheme_files) < 40:
-        thread_num = len(scheme_files)
-    else:
-        thread_num = 40
-
-    threads = []
-    for _ in range(thread_num):
-        thread = Thread(target=build_single_worker,
-                        args=(queue, templates, base_output_dir))
-        thread.start()
-        threads.append(thread)
-
-    queue.join()
-
-    for _ in range(thread_num):
-        queue.put(None)
-
-    for thread in threads:
-        thread.join()
-
+    entry_func = functools.partial(build_single, templates, base_output_dir)
+    with ProcessPoolExecutor() as executor:
+        executor.map(entry_func, scheme_files)
 
 def build(templates=None, schemes=None, base_output_dir=None):
     """Main build function to initiate building process."""

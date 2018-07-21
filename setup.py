@@ -18,7 +18,7 @@ setup(
                    'Programming Language :: Python :: 3 :: Only'
                   ],
       keywords='base16',
-      install_requires=['pystache', 'pyyaml'],
+      install_requires=['pystache', 'pyyaml', 'munkres', 'colormath'],
       python_requires='>=3.4',
       entry_points={
                     'console_scripts': [
